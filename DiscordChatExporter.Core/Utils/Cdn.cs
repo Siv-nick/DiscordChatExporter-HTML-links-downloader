@@ -26,10 +26,14 @@ public static class Cdn
     public static bool IsDiscordCdnUrl(string url) => TryGetHostIfDiscordCdn(url, out _);
 
     // Whether the URL is a Discord attachment URL that carries expiring signature parameters
-    public static bool IsExpiringAttachmentUrl(string url) =>
-        TryGetHostIfDiscordCdn(url, out var uri)
-        && uri.AbsolutePath.StartsWith("/attachments/", StringComparison.OrdinalIgnoreCase)
-        && SignatureQueryParameters.Any(p => HasQueryParameter(uri, p));
+    public static bool IsExpiringAttachmentUrl(string url)
+    {
+        if (!TryGetHostIfDiscordCdn(url, out var uri) || uri is null)
+            return false;
+
+        return uri.AbsolutePath.StartsWith("/attachments/", StringComparison.OrdinalIgnoreCase)
+            && SignatureQueryParameters.Any(p => HasQueryParameter(uri, p));
+    }
 
     private static bool TryGetHostIfDiscordCdn(string url, out Uri? uri)
     {
@@ -37,7 +41,7 @@ public static class Cdn
 
         try
         {
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) || parsed is null)
                 return false;
 
             if ((parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)
@@ -60,7 +64,7 @@ public static class Cdn
     // asset resolves to the same cache key regardless of when its URL was signed
     public static string StripSignatureParameters(string url)
     {
-        if (!TryGetHostIfDiscordCdn(url, out var uri))
+        if (!TryGetHostIfDiscordCdn(url, out var uri) || uri is null)
             return url;
 
         var query = HttpUtility.ParseQueryString(uri.Query);

@@ -24,7 +24,87 @@ public class DiscordClient(
 )
 {
     private readonly Uri _baseUri = new("https://discord.com/api/v10/", UriKind.Absolute);
+    internal string Token { get; } = token;
     private TokenKind? _resolvedTokenKind;
+
+    // Reuses the same request pipeline as normal API calls (auth header, resilience, rate-limit
+    // handling), but allows POST requests with a JSON body, which is needed by endpoints like
+    // /attachments/refresh-urls. The URL is resolved against the API base URI, so it can be either
+    // relative ("attachments/refresh-urls") or absolute.
+    internal async ValueTask<HttpResponseMessage> ExecutePostAsync(
+        string url,
+        HttpContent content,
+        string? contextPropertiesHeaderValue = null,
+        CancellationToken cancellationToken = default
+    ) =>
+        await Http.ResponseResiliencePipeline.ExecuteAsync(
+            async innerCancellationToken =>
+            {
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    new Uri(_baseUri, url)
+                )
+                {
+                    Content = content,
+                };
+
+                var tokenKind = await ResolveTokenKindAsync(innerCancellationToken);
+
+                // Don't validate because the token can have special characters
+                // https://github.com/Tyrrrz/DiscordChatExporter/issues/828
+                request.Headers.TryAddWithoutValidation(
+                    "Authorization",
+                    tokenKind == TokenKind.Bot ? $"Bot {token}" : token
+                );
+
+                // Base64-encoded JSON metadata that Discord requires on some bot-authenticated requests
+                if (contextPropertiesHeaderValue is not null)
+                {
+                    request.Headers.TryAddWithoutValidation(
+                        "X-Context-Properties",
+                        contextPropertiesHeaderValue
+                    );
+                }
+
+                var response = await Http.Client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    innerCancellationToken
+                );
+
+                // Same advisory rate-limit accommodation as in GetResponseAsync
+                // https://github.com/Tyrrrz/DiscordChatExporter/issues/1021
+                if (rateLimitPreference.IsRespectedFor(tokenKind))
+                {
+                    var remainingRequestCount = response
+                        .Headers.TryGetValue("X-RateLimit-Remaining")
+                        ?.Pipe(s => int.ParseOrNull(s, CultureInfo.InvariantCulture));
+
+                    var resetAfterDelay = response
+                        .Headers.TryGetValue("X-RateLimit-Reset-After")
+                        ?.Pipe(s => double.ParseOrNull(s, CultureInfo.InvariantCulture))
+                        ?.Pipe(TimeSpan.FromSeconds);
+
+                    if (remainingRequestCount <= 0 && resetAfterDelay is not null)
+                    {
+                        var delay =
+                            (resetAfterDelay.Value + TimeSpan.FromSeconds(1))
+                            .Clamp(TimeSpan.Zero, TimeSpan.FromSeconds(60));
+
+                        await Task.Delay(delay, innerCancellationToken);
+                    }
+                }
+
+                return response;
+            },
+            cancellationToken
+        );
+
+    // Resolves and caches the token kind (user vs bot), used by external collaborators
+    // such as AttachmentUrlRefresher that need to format auth headers the same way
+    internal ValueTask<TokenKind> ResolveTokenKindInternalAsync(
+        CancellationToken cancellationToken = default
+    ) => ResolveTokenKindAsync(cancellationToken);
 
     private async ValueTask<HttpResponseMessage> GetResponseAsync(
         string url,
