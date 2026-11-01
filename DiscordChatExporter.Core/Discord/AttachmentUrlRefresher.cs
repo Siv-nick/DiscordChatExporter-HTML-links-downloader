@@ -30,11 +30,6 @@ public partial class AttachmentUrlRefresher(
     // Polite delay between batches, mirroring the rate-limit-friendly pacing of the API
     private static readonly TimeSpan BatchDelay = TimeSpan.FromMilliseconds(400);
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
-
     private readonly Dictionary<string, string?> _refreshedUrlByOriginalUrl = new(
         StringComparer.Ordinal
     );
@@ -148,7 +143,8 @@ public partial class AttachmentUrlRefresher(
         // { "attachment_urls": ["url1", "url2"] }
         var payload = new AttachmentRefreshRequestPayload(batch);
         var content = new StringContent(
-            JsonSerializer.Serialize(payload, SerializerOptions),
+            JsonSerializer.Serialize(payload, AttachmentRefreshJsonContext.Default
+                .AttachmentRefreshRequestPayload),
             Encoding.UTF8,
             "application/json"
         );
@@ -199,6 +195,11 @@ public partial class AttachmentUrlRefresher(
         if (channelId != Snowflake.Zero)
             context["channel_id"] = channelId.ToString();
 
-        return Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(context));
+        return Convert.ToBase64String(
+            JsonSerializer.SerializeToUtf8Bytes(
+                context,
+                AttachmentRefreshJsonContext.Default.DictionaryStringString
+            )
+        );
     }
 }

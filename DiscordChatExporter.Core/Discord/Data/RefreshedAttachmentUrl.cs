@@ -49,3 +49,11 @@ public partial record AttachmentRefreshResponsePayload
                 .ToArray()
         );
 }
+
+// Source-generated JSON contract, required for trimming/AOT compatibility
+// (the published CLI app is trimmed, so reflection-based serialization is not allowed).
+[JsonSerializable(typeof(AttachmentRefreshRequestPayload))]
+[JsonSerializable(typeof(AttachmentRefreshResponsePayload))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+internal partial class AttachmentRefreshJsonContext : JsonSerializerContext;
