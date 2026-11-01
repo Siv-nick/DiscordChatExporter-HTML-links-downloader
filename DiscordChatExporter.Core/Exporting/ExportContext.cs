@@ -24,6 +24,12 @@ internal class ExportContext(DiscordClient discord, ExportRequest request)
         request.ShouldReuseAssets
     );
 
+    // Lazily created on the first refreshable asset URL, so that exports without
+    // --refresh-media (or without expiring URLs) never touch the endpoint
+    private readonly Lazy<AttachmentUrlRefresher> _attachmentUrlRefresher = new(() =>
+        new AttachmentUrlRefresher(discord, request.Guild.Id, request.Channel.Id)
+    );
+
     public DiscordClient Discord { get; } = discord;
 
     public ExportRequest Request { get; } = request;
@@ -130,7 +136,15 @@ internal class ExportContext(DiscordClient discord, ExportRequest request)
 
         try
         {
-            var filePath = await _assetDownloader.DownloadAsync(url, cancellationToken);
+            // Old exports and scraped message data contain CDN attachment URLs whose signatures
+            // have already expired (or are about to). Refresh them through the API first so that
+            // the actual download succeeds against the CDN.
+            var effectiveUrl =
+                Request.ShouldRefreshExpiredMedia && Cdn.IsExpiringAttachmentUrl(url)
+                    ? await _attachmentUrlRefresher.Value.RefreshAsync(url, cancellationToken)
+                    : url;
+
+            var filePath = await _assetDownloader.DownloadAsync(effectiveUrl, cancellationToken);
             var relativeFilePath = Path.GetRelativePath(Request.OutputDirPath, filePath);
 
             // Prefer the relative path so that the export package can be copied around without breaking references.

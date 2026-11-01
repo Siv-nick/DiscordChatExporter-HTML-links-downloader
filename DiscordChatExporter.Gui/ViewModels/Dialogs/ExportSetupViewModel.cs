@@ -74,6 +74,10 @@ public partial class ExportSetupViewModel(
     [ObservableProperty]
     public partial bool ShouldReuseAssets { get; set; }
 
+    // Refreshes expired Discord CDN attachment URLs through the API before downloading them.
+    // Always uses the login token, which by definition has access to the exported channel.
+    public bool ShouldRefreshExpiredMedia => true;
+
     [ObservableProperty]
     public partial string? AssetsDirPath { get; set; }
 

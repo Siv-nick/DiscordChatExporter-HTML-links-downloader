@@ -35,16 +35,15 @@ public partial record AttachmentRefreshRequestPayload(
 // Response envelope for POST /api/v9/attachments/refresh-urls:
 // { "refreshed_urls": [{ "original": "...", "refreshed": "..." }] }
 public partial record AttachmentRefreshResponsePayload(
-    [property: JsonPropertyName("refreshed_urls")] IReadOnlyList<RefreshedAttachmentUrl>
-        RefreshedUrls
+    [property: JsonPropertyName("refreshed_urls")]
+        IReadOnlyList<RefreshedAttachmentUrl> RefreshedUrls
 );
 
 public partial record AttachmentRefreshResponsePayload
 {
     public static AttachmentRefreshResponsePayload Parse(JsonElement json) =>
         new(
-            json
-                .GetProperty("refreshed_urls")
+            json.GetProperty("refreshed_urls")
                 .EnumerateArray()
                 .Select(RefreshedAttachmentUrl.Parse)
                 .ToArray()

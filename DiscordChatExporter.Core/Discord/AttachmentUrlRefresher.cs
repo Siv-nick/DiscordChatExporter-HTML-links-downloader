@@ -4,10 +4,12 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using DiscordChatExporter.Core.Discord.Data;
 using DiscordChatExporter.Core.Utils;
+using JsonExtensions.Http;
 
 namespace DiscordChatExporter.Core.Discord;
 
@@ -16,8 +18,7 @@ namespace DiscordChatExporter.Core.Discord;
 // Attachment URLs are signed with 'ex'/'is'/'hm' query parameters that expire after ~24 hours,
 // which makes previously-generated links fail with 403/404 when assets are downloaded later.
 public partial class AttachmentUrlRefresher(
-    string token,
-    TokenKind tokenKind,
+    DiscordClient discord,
     Snowflake guildId,
     Snowflake channelId
 )
@@ -40,7 +41,10 @@ public partial class AttachmentUrlRefresher(
 
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    public async ValueTask<string> RefreshAsync(string url, CancellationToken cancellationToken = default)
+    public async ValueTask<string> RefreshAsync(
+        string url,
+        CancellationToken cancellationToken = default
+    )
     {
         var map = await RefreshAsync([url], cancellationToken);
         return map.TryGetValue(url, out var refreshed) && !string.IsNullOrWhiteSpace(refreshed)
@@ -58,8 +62,7 @@ public partial class AttachmentUrlRefresher(
         var result = new Dictionary<string, string?>(StringComparer.Ordinal);
 
         // Only signed Discord CDN attachment URLs can be refreshed; everything else passes through
-        var candidates = urls
-            .Where(Cdn.IsExpiringAttachmentUrl)
+        var candidates = urls.Where(Cdn.IsExpiringAttachmentUrl)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
@@ -103,9 +106,9 @@ public partial class AttachmentUrlRefresher(
             // the original (possibly dead) URL against the CDN
             catch (Exception)
             {
-                batchResult = batch.ToDictionary<string, string?, string>(
+                batchResult = batch.ToDictionary(
                     url => url,
-                    _ => null,
+                    _ => (string?)null,
                     StringComparer.Ordinal
                 );
             }
@@ -138,6 +141,10 @@ public partial class AttachmentUrlRefresher(
         CancellationToken cancellationToken
     )
     {
+        // Discord requires this header on bot-authenticated requests; the token kind is resolved
+        // (and cached) by the client itself as part of its normal request pipeline.
+        var tokenKind = await discord.ResolveTokenKindInternalAsync(cancellationToken);
+
         // { "attachment_urls": ["url1", "url2"] }
         var payload = new AttachmentRefreshRequestPayload(batch);
         var content = new StringContent(
@@ -146,31 +153,30 @@ public partial class AttachmentUrlRefresher(
             "application/json"
         );
 
-        using var response = await DiscordClient.ExecutePostJsonAsync(
-            "https://discord.com/api/v9/attachments/refresh-urls",
-            token,
-            tokenKind,
+        using var response = await discord.ExecutePostAsync(
+            "attachments/refresh-urls",
             content,
-            BuildContextPropertiesHeaderValue(),
+            BuildContextPropertiesHeaderValue(tokenKind),
             cancellationToken
         );
 
         // 429s and transient server errors are already retried by the resilience pipeline;
         // anything else (401/403/404, etc.) should not kill the export, so bail out gracefully
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"Failed to refresh attachment URLs ({response.StatusCode})");
+            throw new InvalidOperationException(
+                $"Failed to refresh attachment URLs ({response.StatusCode})"
+            );
 
-        using var json = await response.Content.ReadAsJsonAsync(cancellationToken);
+        var json = await response.Content.ReadAsJsonAsync(cancellationToken);
 
         var parsed = AttachmentRefreshResponsePayload.Parse(json);
 
-        var map = parsed.RefreshedUrls
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.Original))
-            .ToDictionary(
-                entry => entry.Original,
-                entry => entry.Refreshed,
-                StringComparer.Ordinal
-            );
+        var map = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var entry in parsed.RefreshedUrls)
+        {
+            if (!string.IsNullOrWhiteSpace(entry.Original))
+                map[entry.Original] = entry.Refreshed;
+        }
 
         // Any URL the API silently dropped from the response is treated as un-refreshable
         foreach (var url in batch)
@@ -180,8 +186,7 @@ public partial class AttachmentUrlRefresher(
     }
 
     // Base64-encoded JSON metadata that Discord requires on bot-authenticated requests
-    // https://discord.com/developers/docs/reference#audit-log-reason... (context properties)
-    private string? BuildContextPropertiesHeaderValue()
+    private string? BuildContextPropertiesHeaderValue(TokenKind tokenKind)
     {
         if (tokenKind != TokenKind.Bot)
             return null;
