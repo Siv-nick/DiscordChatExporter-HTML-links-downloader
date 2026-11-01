@@ -4,12 +4,12 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using DiscordChatExporter.Core.Discord.Data;
 using DiscordChatExporter.Core.Utils;
 using JsonExtensions.Http;
-using System.Text.Json.Serialization;
 
 namespace DiscordChatExporter.Core.Discord;
 
@@ -17,7 +17,11 @@ namespace DiscordChatExporter.Core.Discord;
 // POST https://discord.com/api/v9/attachments/refresh-urls.
 // Attachment URLs are signed with 'ex'/'is'/'hm' query parameters that expire after ~24 hours,
 // which makes previously-generated links fail with 403/404 when assets are downloaded later.
-public partial class AttachmentUrlRefresher(DiscordClient discord, Snowflake guildId, Snowflake channelId)
+public partial class AttachmentUrlRefresher(
+    DiscordClient discord,
+    Snowflake guildId,
+    Snowflake channelId
+)
 {
     // Discord accepts up to 50 URLs per request, but smaller batches keep payloads well below
     // any size limits and make partial failures cheaper. Must be between 1 and 50.
@@ -37,7 +41,10 @@ public partial class AttachmentUrlRefresher(DiscordClient discord, Snowflake gui
 
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    public async ValueTask<string> RefreshAsync(string url, CancellationToken cancellationToken = default)
+    public async ValueTask<string> RefreshAsync(
+        string url,
+        CancellationToken cancellationToken = default
+    )
     {
         var map = await RefreshAsync([url], cancellationToken);
         return map.TryGetValue(url, out var refreshed) && !string.IsNullOrWhiteSpace(refreshed)
@@ -55,8 +62,7 @@ public partial class AttachmentUrlRefresher(DiscordClient discord, Snowflake gui
         var result = new Dictionary<string, string?>(StringComparer.Ordinal);
 
         // Only signed Discord CDN attachment URLs can be refreshed; everything else passes through
-        var candidates = urls
-            .Where(Cdn.IsExpiringAttachmentUrl)
+        var candidates = urls.Where(Cdn.IsExpiringAttachmentUrl)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
@@ -100,9 +106,9 @@ public partial class AttachmentUrlRefresher(DiscordClient discord, Snowflake gui
             // the original (possibly dead) URL against the CDN
             catch (Exception)
             {
-                batchResult = batch.ToDictionary<string, string?, string>(
+                batchResult = batch.ToDictionary(
                     url => url,
-                    _ => null,
+                    _ => (string?)null,
                     StringComparer.Ordinal
                 );
             }
@@ -135,6 +141,10 @@ public partial class AttachmentUrlRefresher(DiscordClient discord, Snowflake gui
         CancellationToken cancellationToken
     )
     {
+        // Discord requires this header on bot-authenticated requests; the token kind is resolved
+        // (and cached) by the client itself as part of its normal request pipeline.
+        var tokenKind = await discord.ResolveTokenKindInternalAsync(cancellationToken);
+
         // { "attachment_urls": ["url1", "url2"] }
         var payload = new AttachmentRefreshRequestPayload(batch);
         var content = new StringContent(
@@ -146,16 +156,18 @@ public partial class AttachmentUrlRefresher(DiscordClient discord, Snowflake gui
         using var response = await discord.ExecutePostAsync(
             "attachments/refresh-urls",
             content,
-            BuildContextPropertiesHeaderValue(),
+            BuildContextPropertiesHeaderValue(tokenKind),
             cancellationToken
         );
 
         // 429s and transient server errors are already retried by the resilience pipeline;
         // anything else (401/403/404, etc.) should not kill the export, so bail out gracefully
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"Failed to refresh attachment URLs ({response.StatusCode})");
+            throw new InvalidOperationException(
+                $"Failed to refresh attachment URLs ({response.StatusCode})"
+            );
 
-        using var json = await response.Content.ReadAsJsonAsync(cancellationToken);
+        var json = await response.Content.ReadAsJsonAsync(cancellationToken);
 
         var parsed = AttachmentRefreshResponsePayload.Parse(json);
 
@@ -174,7 +186,7 @@ public partial class AttachmentUrlRefresher(DiscordClient discord, Snowflake gui
     }
 
     // Base64-encoded JSON metadata that Discord requires on bot-authenticated requests
-    private string? BuildContextPropertiesHeaderValue()
+    private string? BuildContextPropertiesHeaderValue(TokenKind tokenKind)
     {
         if (tokenKind != TokenKind.Bot)
             return null;
@@ -189,8 +201,4 @@ public partial class AttachmentUrlRefresher(DiscordClient discord, Snowflake gui
 
         return Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(context));
     }
-
-    internal async ValueTask<TokenKind> ResolveTokenKindAsync(
-        CancellationToken cancellationToken = default
-    ) => await discord.ResolveTokenKindInternalAsync(cancellationToken);
 }

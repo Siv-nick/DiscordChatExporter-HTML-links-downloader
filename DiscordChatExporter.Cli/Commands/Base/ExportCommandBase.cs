@@ -108,6 +108,13 @@ public abstract class ExportCommandBase : DiscordCommandBase
     public bool ShouldReuseAssets { get; set; } = false;
 
     [CommandOption(
+        "refresh-media",
+        Description = "Refresh expired Discord CDN attachment URLs through the API before downloading them. "
+            + "Useful when exporting old channels whose media links have already expired."
+    )]
+    public bool ShouldRefreshExpiredMedia { get; set; } = false;
+
+    [CommandOption(
         "media-dir",
         Description = "Download assets to this directory. "
             + "If not specified, the asset directory path will be derived from the output path."
@@ -159,6 +166,13 @@ public abstract class ExportCommandBase : DiscordCommandBase
             if (ShouldReuseAssets && !ShouldDownloadAssets)
             {
                 throw new CommandException("Option --reuse-media cannot be used without --media.");
+            }
+
+            if (ShouldRefreshExpiredMedia && !ShouldDownloadAssets)
+            {
+                throw new CommandException(
+                    "Option --refresh-media cannot be used without --media."
+                );
             }
 
             // Assets directory can only be specified if the download assets option is set
@@ -291,6 +305,7 @@ public abstract class ExportCommandBase : DiscordCommandBase
                                             ShouldFormatMarkdown,
                                             ShouldDownloadAssets,
                                             ShouldReuseAssets,
+                                            ShouldRefreshExpiredMedia,
                                             Locale,
                                             IsUtcNormalizationEnabled
                                         );

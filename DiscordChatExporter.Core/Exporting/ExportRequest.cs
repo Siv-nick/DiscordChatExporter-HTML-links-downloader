@@ -41,6 +41,10 @@ public partial class ExportRequest
 
     public bool ShouldReuseAssets { get; }
 
+    // Refreshes expired Discord CDN attachment URLs through the API before downloading them.
+    // Requires a valid token with access to the target channel.
+    public bool ShouldRefreshExpiredMedia { get; }
+
     public string? Locale { get; }
 
     public CultureInfo? CultureInfo { get; }
@@ -61,6 +65,7 @@ public partial class ExportRequest
         bool shouldFormatMarkdown,
         bool shouldDownloadAssets,
         bool shouldReuseAssets,
+        bool shouldRefreshExpiredMedia,
         string? locale,
         bool isUtcNormalizationEnabled
     )
@@ -76,6 +81,7 @@ public partial class ExportRequest
         ShouldFormatMarkdown = shouldFormatMarkdown;
         ShouldDownloadAssets = shouldDownloadAssets;
         ShouldReuseAssets = shouldReuseAssets;
+        ShouldRefreshExpiredMedia = shouldRefreshExpiredMedia;
         Locale = locale;
         IsUtcNormalizationEnabled = isUtcNormalizationEnabled;
 

@@ -275,6 +275,7 @@ public partial class DashboardViewModel : ViewModelBase
                             dialog.ShouldFormatMarkdown,
                             dialog.ShouldDownloadAssets,
                             dialog.ShouldReuseAssets,
+                            dialog.ShouldRefreshExpiredMedia,
                             _settingsService.Locale,
                             _settingsService.IsUtcNormalizationEnabled
                         );

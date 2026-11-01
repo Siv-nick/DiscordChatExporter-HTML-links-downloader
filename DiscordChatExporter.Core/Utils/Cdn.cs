@@ -44,8 +44,10 @@ public static class Cdn
             if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) || parsed is null)
                 return false;
 
-            if ((parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)
-                || !AllowedHosts.Contains(parsed.Host))
+            if (
+                (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)
+                || !AllowedHosts.Contains(parsed.Host)
+            )
                 return false;
 
             uri = parsed;

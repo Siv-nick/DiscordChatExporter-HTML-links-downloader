@@ -24,7 +24,6 @@ public class DiscordClient(
 )
 {
     private readonly Uri _baseUri = new("https://discord.com/api/v10/", UriKind.Absolute);
-    internal string Token { get; } = token;
     private TokenKind? _resolvedTokenKind;
 
     // Reuses the same request pipeline as normal API calls (auth header, resilience, rate-limit
@@ -40,10 +39,7 @@ public class DiscordClient(
         await Http.ResponseResiliencePipeline.ExecuteAsync(
             async innerCancellationToken =>
             {
-                using var request = new HttpRequestMessage(
-                    HttpMethod.Post,
-                    new Uri(_baseUri, url)
-                )
+                using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(_baseUri, url))
                 {
                     Content = content,
                 };
@@ -87,9 +83,10 @@ public class DiscordClient(
 
                     if (remainingRequestCount <= 0 && resetAfterDelay is not null)
                     {
-                        var delay =
-                            (resetAfterDelay.Value + TimeSpan.FromSeconds(1))
-                            .Clamp(TimeSpan.Zero, TimeSpan.FromSeconds(60));
+                        var delay = (resetAfterDelay.Value + TimeSpan.FromSeconds(1)).Clamp(
+                            TimeSpan.Zero,
+                            TimeSpan.FromSeconds(60)
+                        );
 
                         await Task.Delay(delay, innerCancellationToken);
                     }
